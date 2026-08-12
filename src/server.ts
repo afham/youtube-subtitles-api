@@ -24,6 +24,26 @@ interface YtDlpMetadata {
   automatic_captions?: Record<string, SubtitleTrack[]>;
 }
 
+// Path to temporary cookies file in execution environment
+const COOKIES_PATH = path.join(os.tmpdir(), "youtube_cookies.txt");
+
+// Helper to write YOUTUBE_COOKIES env var to a file and return the path
+function ensureCookiesFile(): string | undefined {
+  const cookiesEnv = process.env.YOUTUBE_COOKIES;
+  if (!cookiesEnv) {
+    return undefined;
+  }
+
+  try {
+    // Keep cookie file fresh on each deployment/boot
+    fs.writeFileSync(COOKIES_PATH, cookiesEnv, "utf-8");
+    return COOKIES_PATH;
+  } catch (err) {
+    console.error("Failed to write YouTube cookies file:", err);
+    return undefined;
+  }
+}
+
 // ------------------------------------------------------------------
 // 1. Fetch metadata & list available subtitles
 // ------------------------------------------------------------------
@@ -35,11 +55,19 @@ app.post("/api/subtitles/info", async (req: Request, res: Response) => {
   }
 
   try {
-    const info = (await execa(url, {
+    const cookieFile = ensureCookiesFile();
+
+    const options: Record<string, any> = {
       dumpSingleJson: true,
       noWarnings: true,
       preferFreeFormats: true,
-    })) as unknown as YtDlpMetadata;
+    };
+
+    if (cookieFile) {
+      options.cookies = cookieFile;
+    }
+
+    const info = (await execa(url, options)) as unknown as YtDlpMetadata;
 
     const manualSubs = info.subtitles || {};
     const autoSubs = info.automatic_captions || {};
@@ -90,13 +118,18 @@ app.post("/api/subtitles/download", async (req: Request, res: Response) => {
 
   try {
     const outputTemplate = path.join(tmpDir, "%(id)s");
+    const cookieFile = ensureCookiesFile();
 
     const options: Record<string, any> = {
       skipDownload: true,
       subLangs: langCode,
-      convertSubtitles: format, // FIXED: Correct flag name for yt-dlp
+      convertSubtitles: format,
       output: outputTemplate,
     };
+
+    if (cookieFile) {
+      options.cookies = cookieFile;
+    }
 
     if (isAuto) {
       options.writeAutoSubs = true;
@@ -108,7 +141,7 @@ app.post("/api/subtitles/download", async (req: Request, res: Response) => {
 
     // Locate the generated subtitle file inside tmpDir
     const files = fs.readdirSync(tmpDir);
-    const subFile = files.find((f) => f.endsWith(`.${format}`)); // FIXED: Robust extension matching
+    const subFile = files.find((f) => f.endsWith(`.${format}`));
 
     if (!subFile) {
       throw new Error(`Subtitle file in format '${format}' was not generated.`);
