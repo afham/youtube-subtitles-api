@@ -141,3 +141,8 @@ app.post("/api/subtitles/info", async (req: Request, res: Response) => {
     });
   }
 });
+
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`Subtitle API running on http://localhost:${PORT}`);
+});
