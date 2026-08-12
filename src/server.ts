@@ -43,6 +43,7 @@ function ensureCookiesFile(): string | undefined {
     return undefined;
   }
 }
+
 // ------------------------------------------------------------------
 // 1. Fetch metadata & list available subtitles
 // ------------------------------------------------------------------
@@ -59,11 +60,7 @@ app.post("/api/subtitles/info", async (req: Request, res: Response) => {
     const options: Record<string, any> = {
       dumpSingleJson: true,
       noWarnings: true,
-      skipDownload: true,
-      // Force format to subtitles / best audio to prevent format error when checking video streams
-      format: "ba/b",
-      // Force YouTube TV client which bypasses data center restrictions
-      extractorArgs: "youtube:player_client=tv,web;skip=hls,dash",
+      preferFreeFormats: true,
     };
 
     if (cookieFile) {
