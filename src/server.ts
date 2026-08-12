@@ -60,7 +60,8 @@ app.post("/api/subtitles/info", async (req: Request, res: Response) => {
     const options: Record<string, any> = {
       dumpSingleJson: true,
       noWarnings: true,
-      preferFreeFormats: true,
+      skipDownload: true, // Focus purely on metadata/subtitles
+      extractorArgs: "youtube:player_client=android,web", // Bypass web client format restrictions
     };
 
     if (cookieFile) {
