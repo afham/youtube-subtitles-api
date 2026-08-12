@@ -26,4 +26,4 @@ ENV PORT=5000
 EXPOSE 5000
 
 # 7. Start production server
-CMD ["node", "dist/server.js"]
+CMD ["node", "--max-old-space-size=400", "dist/server.js"]
