@@ -16,6 +16,7 @@
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "youtube-po-token-generator": "^0.6.0",
+    "youtubei.js": "^18.0.0",
     "yt-dlp-exec": "^1.0.2"
   },
   "devDependencies": {
