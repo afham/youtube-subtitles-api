@@ -1,10 +1,7 @@
 import express, { Request, Response } from "express";
 import cors from "cors";
 import execa from "yt-dlp-exec";
-import fs from "fs";
-import path from "path";
-import os from "os";
-import { generate } from "youtube-po-token-generator";
+const { BG } = require("bgutils-js");
 
 const app = express();
 app.use(cors());
@@ -26,7 +23,7 @@ interface YtDlpMetadata {
 }
 
 // ------------------------------------------------------------------
-// PO Token Cache Manager
+// PO Token Cache & BGUtils Manager
 // ------------------------------------------------------------------
 interface PoTokenCache {
   poToken: string;
@@ -35,6 +32,9 @@ interface PoTokenCache {
 }
 
 let cachedPoTokenData: PoTokenCache | null = null;
+let bgInstance: any = null;
+let isGenerating = false;
+
 const TOKEN_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours TTL
 
 async function getOrFetchPoToken(): Promise<{
@@ -43,7 +43,7 @@ async function getOrFetchPoToken(): Promise<{
 } | null> {
   const now = Date.now();
 
-  // Return cached token if valid
+  // Return cached token if still valid
   if (cachedPoTokenData && now - cachedPoTokenData.generatedAt < TOKEN_TTL_MS) {
     return {
       poToken: cachedPoTokenData.poToken,
@@ -51,9 +51,34 @@ async function getOrFetchPoToken(): Promise<{
     };
   }
 
+  // If another request is currently generating, fall back to stale cache or null
+  if (isGenerating) {
+    if (cachedPoTokenData) {
+      return {
+        poToken: cachedPoTokenData.poToken,
+        visitorData: cachedPoTokenData.visitorData,
+      };
+    }
+    return null;
+  }
+
+  isGenerating = true;
+
   try {
-    console.log("[PO-Token] Generating fresh YouTube PO Token...");
-    const { poToken, visitorData } = await generate();
+    console.log(
+      "[PO-Token] Generating fresh YouTube PO Token using bgutils-js...",
+    );
+
+    // Reuse or create the BG instance
+    if (!bgInstance) {
+      bgInstance = await BG.create({
+        fetch: fetch.bind(globalThis),
+        globalObj: globalThis,
+      });
+    }
+
+    const poToken = await bgInstance.generatePoToken();
+    const visitorData = bgInstance.getVisitorData();
 
     cachedPoTokenData = {
       poToken,
@@ -61,13 +86,28 @@ async function getOrFetchPoToken(): Promise<{
       generatedAt: now,
     };
 
-    console.log("[PO-Token] Fresh PO Token successfully generated.");
+    console.log(
+      "[PO-Token] Fresh PO Token successfully generated via bgutils-js.",
+    );
     return { poToken, visitorData };
   } catch (error: any) {
-    console.error("[PO-Token] Error generating PO Token:", error.message);
-    // Return stale token if generation fails as fallback
-    if (cachedPoTokenData) return cachedPoTokenData;
+    console.error(
+      "[PO-Token] Error generating PO Token via bgutils-js:",
+      error.message,
+    );
+    // Reset instance on error in case of corrupted internal state
+    bgInstance = null;
+
+    // Return stale token as fallback if available
+    if (cachedPoTokenData) {
+      return {
+        poToken: cachedPoTokenData.poToken,
+        visitorData: cachedPoTokenData.visitorData,
+      };
+    }
     return null;
+  } finally {
+    isGenerating = false;
   }
 }
 
@@ -83,11 +123,11 @@ async function getBaseYtDlpOptions(): Promise<Record<string, any>> {
 
   const poData = await getOrFetchPoToken();
 
-  if (poData) {
-    // Attach PO Token and Visitor Data to the YouTube Extractor
+  if (poData?.poToken && poData?.visitorData) {
+    // Attach PO Token and Visitor Data to YouTube Extractor
     options.extractorArgs = `youtube:po_token=web+${poData.poToken};visitor_data=${poData.visitorData};player_client=web,mweb`;
   } else {
-    // Fallback if token generator fails
+    // Fallback client bypass if token generation is unavailable
     options.extractorArgs = "youtube:player_client=mweb,android";
   }
 
@@ -143,6 +183,10 @@ app.post("/api/subtitles/info", async (req: Request, res: Response) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Subtitle API running on http://localhost:${PORT}`);
+  // Warm up token in the background on startup
+  getOrFetchPoToken().catch((err) =>
+    console.warn("[PO-Token] Warm-up generation warning:", err.message),
+  );
 });
